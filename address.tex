@@ -1,0 +1,139 @@
+\section{Entries}
+DFI represents peers as Entries. These contain information about a peer, and can
+be used to connect to it, download a collection of the peer's posts, etc. Much
+like posts, I have found SQLite to be useful for storing entries.\\
+
+\begin{minipage}{\linewidth}
+\begin{center}
+\begin{tabular}{ c|p{6cm}|c }
+	\textbf{Field} & \textbf{Purpose} & \textbf{Limits} \\  
+	\hline
+	Address        & A DFI address, as specified below \\
+	\hline
+	Name           & The name of this node, specified by the user & 64 chars \\
+	\hline
+	Desc           & A brief description of this node, like a bio & 256 chars \\
+	\hline
+	PublicAddress  & The address we should connect to to access this node:
+	                 could be IP, domain, onion, etc
+				   & 256 chars \\
+	\hline
+	PublicKey      & The Ed25519 public key for this \texttt{Entry}, used for verification
+	               & 32 bytes \\
+	\hline
+	PostCount      & The number of posts this \texttt{Entry} has \\
+	\hline
+	Updated        & When this node last updates it's \texttt{Entry} \\
+	\hline
+	Signature      & The signature for this \texttt{Entry}, used to verify all details
+	                 are correct. & 64 bytes \\
+	\hline
+	CollectionHash & The hash of a collection, defined in the next section & 32
+	bytes \\
+	\hline
+	Port           & The port this node listens for DFI collections on & max
+	65536 \\
+	\hline
+	Seeds          & a 2D array of bytes, each being a raw DFI address that
+	seeds this node \\
+	\hline
+	Seeding        & a 2D array of bytes, each being a raw DFI address that this
+	node is seeding \\
+	\hline
+	Seen           & When this node was last seen in the network \\
+	\hline
+	Meta           & A JSON-encoded object allowing for protocol extension \\
+	\hline
+
+\end{tabular}
+\end{center}
+\end{minipage}
+
+\subsection{Address}
+DFI has addresses that very much resemble Bitcoin addresses when encoded \cite{bitcoin}. In
+fact, they are generated in pretty much the same way! Here is an example:
+\begin{lstlisting}
+	ZfkbZZXdHgLcmRoTqJjXpbZLtpWFLousS6
+\end{lstlisting}
+
+	\subsubsection{Features}
+\begin{multicols}{2}
+Addresses are derived from an Ed25519 public key. This means that a node can ask
+any peer for the public key for a given address, and then derive an address from
+it. If this derivation is successful, then we know that we have recieved the
+correct public key. If not, then something is going wrong.
+
+The binary version of an address is always 20 bytes, due to the hash function
+used. However, this is not particularly human-readable, so base58check encoding
+is used. This is slightly different to base64, and originally developed for use
+in Bitcoin. It has the benefit of avoiding ambiguous characters such as ``0O" or
+``I1". Also seeing as it's entirely alphanumeric, various UX interactions work
+nicely with it.
+\end{multicols}
+\subsubsection{Generating an address}
+\begin{multicols}{2}
+Generating an address is actually very easy. DFI uses SHA3-256 and BLAKE2.
+\begin{enumerate}
+	\item take the SHA3-256 sum of the public key
+	\item take the BLAKE2 sum of the previous sum
+	\item optionally base58check encode for human readability
+\end{enumerate}
+So essentially, BLAKE2(SHA3-256(publicKey))
+
+While similar to Bitcoin, DFI differs in choice of SHA hash function. SHA2 is a
+Merkle-Damg\aa{}rd hash, and therefore vulnerable to a length
+extension vulnerability. While a double hash solves this problem, it does
+introduce some other issues. SHA3, being in the Keccak family, does not suffer
+from a length extension flaw \cite{length} --- therefore making it the best choice for a new
+protocol.
+
+When base58check encoding the address, it is prefixed with a ``Z". This makes it
+obvious that this is a DFI address, and not anything else. 
+\end{multicols}
+
+\newpage
+\subsection{Signing}
+\begin{multicols}{2}
+	\texttt{Entries} must be signed in order to ensure that they can be shared and
+	verified. Once the public key is known, it is easy to verify signatures.
+	However, in order to do this we must first convert the \texttt{Entry} to a byte form
+	in order to sign it. We can't just use JSON, as this does
+	not guarantee any form of field ordering. We do not expect
+	this format to ever be decoded, so no separators are needed. \texttt{Entries} 
+	are encoded by first converting each field to a string, then appending each 
+	string in order, like so:
+\end{multicols}
+
+	\begin{center}
+	\begin{minipage}{0.5\linewidth}
+	\begin{enumerate}
+		\item name
+		\item description
+		\item public address
+		\item public key
+		\item port
+		\item post count
+		\item updated
+		\item collection hash
+		\item seeding \footnotemark
+		\item meta
+	\end{enumerate}
+\end{minipage}
+\end{center}
+\footnotetext{Each address we are seeding is stored as raw binary, not base58
+				encoded. They are also appended in the raw form.}
+
+	\subsubsection{Mutability}
+	\begin{multicols}{2}
+	You may have noticed that the \texttt{Entry} does not sign all of its fields. This is
+	intentional! For instance, while it only makes sense for the \texttt{Entry} to change
+	what it is seeding, this is not true for who seeds the \texttt{Entry}. New seeds can
+	come about at any time, and it makes sense for all seeds to maintain a list
+	of all other seeds, regardless of whether or not the node itself is online.
+
+	As well as that, signing the signature before replacing it would mean that
+	entries would never validate.
+
+	Finally, the Seen field is not signed, as this should be updated by other
+	nodes. 
+\end{multicols}

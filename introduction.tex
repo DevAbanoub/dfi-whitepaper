@@ -1,0 +1,146 @@
+\section{Introduction}
+	While searching for webpages online has been easy since the advent of
+	the search engine, searching specifically for files has not been quite
+	as intuitive.
+\subsection{Current Solutions}
+	\begin{multicols}{2}
+		When BitTorrent \cite{bittorrent} was invented in 2001, suddenly we had a way of sharing
+		files quickly, and without having to own or rent any sort of hosting
+		infrastructure. The downloading of a torrent itself may be
+		decentralised, yet to actually find the link to the file itself most
+		users use a centralised index --- something I have always found ironic.
+
+		The downsides of this are many:
+
+		\begin{description}
+			\item[censorship]
+				Any government, organization, or other controlling and
+				potentially oppressive entity has the power to block access or
+				totally remove an index. This can result in a vast loss of
+				information.
+			\item[traffic]
+				An index can see vast amounts of traffic flowing
+				through it, making it expensive and difficult to run.
+			\item[data loss]
+				For any of the above reasons, an index may go down. It could
+				even just be an administration error. If it has no backups,
+				access to files could potentially be lost forever.
+			\item[discovery] If you want people to be able to download your
+				file, then you'd better put it on a popular index. This means
+				that there are a few top indexes having a monopoly, leading to
+				yet further centralisation.
+
+	
+		\end{description}
+	\end{multicols}
+\subsection{DFI}
+\begin{multicols}{2}
+	DFI offers a new approach. Instead of having a database of magnet links and
+	metadata in a datacentre somewhere, why not have it everywhere? Give
+	everyone access to a means of sharing, without any limits. 
+
+	Instead of one index indexing everyone's data, take a more peer-to-peer (p2p) approach. Make
+	each node in the network store a database of its own files, have them index 
+	their own files. Take it a step further and allow any interested peers to
+	download any other node's database, becoming both a seed for future downloads
+	and a backup in case anything goes wrong. They also get the benefit of
+	increased search speed. Peers can then answer both search queries for files,
+	or download queries for their database. The former doesn't require a
+	download step, but relies on the peer being available. The latter has greatly
+	increased privacy, and doesn't rely on any other peers being online.
+
+	Peer details --- such as name, address, public key, etc - are stored across
+	the network. All that is needed is an address derived from the public key,
+	and using Kademlia-style \cite{kademlia} lookups it can be resolved to the details needed.
+
+	Adding to the address resolution, DFI can actively explore the network to
+	try and increase its knowledge of other peers. 
+
+	To aid in address resolution, peers can store a database of peer details,
+	reducing their own address resolution time and overall network bandwidth
+	usage. We can then allow this database to be searched by users, allowing for
+	easy content discovery.
+\end{multicols}
+
+	\subsection{Searching}
+	\begin{multicols}{2}
+	DFI makes an important distinction between two different types of searching.
+	If, for instance, we wish to search a peer's collection, it can happen in
+	one of two ways.
+
+	\begin{description}
+		\item[remote] make a connection, and send them a search query.
+	                  This is more like a traditional index, and has minimal 
+					  friction.
+		\item[local] this first requires downloading a peer's database,
+		             which may take a while depending on bandwidth. However,
+					 once this has been done, all searches can be performed very
+					 quickly, with no remote requests needed --- which is also
+					 good for privacy.
+
+	\end{description}
+\end{multicols}
+	
+	\subsubsection{Global search}
+	\begin{multicols}{2}
+	Initially, the idea of everyone having full search access to all posts all
+	the time seemed like a great idea. However, systems like Gnutella
+	\cite{gnutella} have
+	issues with malware and spam. 
+
+	In a decentralised system, there is obviously no centralised control. One of
+	the downsides of this is a complete lack of any sort of content moderation,
+	weeding out the rubbish and ensuring that the content is real.
+
+	There is also the issue of copyrighted content spreading. 
+
+	Overall, there would be the possibility that the network would become rife
+	with fake, illegal, and generally dangerous downloads.
+
+	With the approach DFI has taken, we have to know the peer address in order
+	to search them. While we could search the peer database for keywords,
+	instead of fake content being there whether we want it to be or not, users
+	are in charge of moderating their own content. If a node is filled with
+	spam, users can just choose not to include it with their search results in
+	the first place.
+
+	This approach has seen success in pretty much all subscription-based models.
+
+\end{multicols}
+
+\subsection{Encryption and anonymity}
+\begin{multicols}{2}
+	DFI provides no encryption, no anonymity, and does not in fact route any
+	connections or packets like other systems may. It relies on an underlying
+	system for this sort of thing, and permits the use of SOCKS proxies to use
+	such services. Below I will detail a few networks that could be used.
+
+	\begin{description}
+		\item[Tor] \cite{tor} provides anonymity via Onion routing. It also encrypts by
+			default, and aids in NAT traversal by using Onion addresses
+			(.onion). However, it is slow, has high latency, and isn't entirely
+			suited to p2p applications. 
+		\item[I2P] \cite{i2p} is similar to Tor, though with the intention of not
+			accessing the ``outer" normal internet. It also provides some level
+			of anonymity and encryption. Its routing splits connections via 
+			many nodes, and every node in the network contributes. While it may 
+			be more suited to p2p, it has not been as studied or attacked as 
+			Tor has, and is slower due to a lack of popularity compared to Tor.
+			It also provides NAT traversal.
+		\item[cjdns] \cite{cjdns} provides no anonymity, but it does provide an encrypted
+			IPv6 network, and is very fast and reliable. It should also be
+			scalable, though it has not been studied as much as Tor. NAT
+			traversal is also possible.
+	\end{description} 
+
+	None of these methods of anonymity should be trusted for personal safety, especially
+	against any sort of state-level actor.
+
+	It could be best to make cjdns a standard for DFI, as it provides all of the
+	needed features, as well as causing no performance hits (it may potentially
+	even increase performance and reliability).
+
+	The only downside is a lack of anonymity, though no users should \textbf{require}
+	this and can gain some degree of privacy by not putting personal and
+	identifying details in their \texttt{Entry}. Those needing it can use Tor.
+\end{multicols}

@@ -1,0 +1,450 @@
+\section{Protocol}
+\begin{multicols}{2}
+	DFI uses TCP for connections. This is to both make it easier to implement,
+	and to make things less complicated. It also makes it easier to use SOCKS
+	proxies, among other things.
+
+	To allow for multiple concurrent requests, as well as allowing for the
+	recieving peer (or ``server") to initiate connections, DFI uses stream
+	multiplexing. Specifically the Yamux \cite{yamux} library/protocol is used, which 
+	performs well.
+
+	The protocol allows for any listening port to be used, though 5050 is
+	standard. This is mostly because it is often open in firewalls, and isn't
+	used for anything important.
+
+	When initiating a DFI connection, a sequence of 4 bytes is expected. The
+	first two are the DFI bytes, indicating that this is a DFI connection. The
+	latter two are the protocol version. If the protocol versions differ, then
+	the connection will be terminated. In this way, we can more easily
+	distinguish DFI nodes of different versions in the future, without any weird
+	protocol errors occuring. The DFI bytes are \texttt{0x7a66}, and the version
+	is dependent on the client (though right now it is \texttt{0x0000}).
+
+	Once it is known that this is a DFI connection, handshaking can begin.
+\end{multicols}
+
+	\subsection{Messages}
+	\begin{multicols}{2}
+	DFI uses the concept of messages to communicate. While it is not a datagram
+	protocol, messages make it much easier to deal with requests and responses. A
+	message is a struct containing a \texttt{Header} and a \texttt{Content}
+	field. The former identifies the message type, which can be switched on for
+	routing, while the latter allows for some form of data to be sent along with
+	the request. The \texttt{Header} is a string, and the \texttt{Content} is anything that can be
+	encoded to bytes.
+
+	Encoding wise, DFI uses MessagePack. This is more space-efficient than JSON, and
+	is also more performant. The main downside is the loss in human readability
+	for debugging, but tools can solve that. The message itself is MessagePack
+	encoded, and any data intended for the \texttt{Content} field also is, by standard.
+
+	There are several message types defined, they are detailed in the 
+	table below. While it is possible for implementations to add their own message
+	types, this should be discouraged as nodes will error on unknown messages.
+	If extra functionality is required, it should be negotiated while
+	handshaking.
+\end{multicols}
+
+	\begin{center}
+		\begin{tabular}{ c|p{8cm} }
+		\textbf{Header} & \textbf{Purpose} \\  
+		\hline
+		header          & indicates the start of a handshake: contains the \texttt{Entry}
+		                   of the peer \\
+		\hline
+		cap             & a struct detailing the ``extra" capabilities of this
+		                 peer, such as compression: what this contains is 
+						 implementation-specific \\
+		\hline
+		ok              & an affirmative response \\
+		\hline
+		no              & a negative response, may also include an error message \\
+		\hline
+		term            & indicates that the connection should be terminated,
+		                  allowing for graceful shutdown \\
+		\hline
+		cookie          & indicates that the message contains a cookie, used for
+		                  proof of private key ownership \\
+		\hline
+		sig             & indicates that the message contains a signature, used
+		                  for sending back the signed cookie \\
+		\hline
+		done            & whatever work that was happening has now completed \\
+		\hline
+		req.search      & used to perform a remote search, contents should be
+		                  the query \\
+		\hline
+		req.recent      & requests the most recent posts a peer has \\
+		\hline
+		req.popular     & requests the most popular posts a peer has \\
+		\hline
+		req.hashlist    & requests a hashlist for a given peer, part of a
+		                  collection \\
+		\hline
+		req.piece       & requests a piece or range of pieces from a peer \\
+		\hline
+		req.addseed     & requests that this node be added as a seed for a given
+		                  peer \\
+		\\
+		\hline
+		posts           & the message contains posts, and is the usual response
+		                  to something like req.recent \\ 
+		\hline 
+		hashlist        & the message contains a hashlist for a collection \\
+		\hline
+		dht.entry       & the message contains a DHT \texttt{Entry} \\
+		\hline
+		dht.entries     & the message contains a array of DHT entries \\
+		\hline
+		dht.query       & query a peer for a \texttt{dht.entry} \\
+		\hline
+		dht.announce    & inserts the nodes own \texttt{Entry} into another peer \\
+		\hline
+		dht.findclosest & request the closest entries to a given address \\
+		\hline
+
+
+	\end{tabular}
+	\end{center}
+
+	\subsection{Error codes}
+	DFI uses error codes when responding with a \texttt{err} message. The
+	\texttt{Content} field of this message should contain an error code and optional
+	detailing. The error codes specified here are taken from the HTTP error code
+	specification.
+
+	\begin{center}
+		\begin{tabular}{ c|p{8cm} }
+			\textbf{Code} & \textbf{Purpose} \\
+			\hline
+			300           & used to indicate ``multiple choices", or that a peer
+			                should refer to one of this nodes seeds. \\
+			\hline
+			400           & bad request \\
+			\hline
+			403           & forbidden \\
+			\hline
+			404           & not found \\
+			\hline
+			500           & internal server error \\
+			\hline
+		    501           & not implemented \\
+			\hline
+		\end{tabular}
+	\end{center}
+
+	\subsection{Handshaking}
+	From here and onwards, ``server" shall refer to the peer recieving a
+	connection, and ``client" shall refer to the peer initiating a connection.
+	The handshake process will be explained from the perspective of the server.
+	
+	\begin{multicols}{2}
+		As soon as the server recieves a valid DFI TCP connection, it will begin
+		handshaking.
+		Once this occurs, the server expects a \texttt{header} message from the
+		client, with its \texttt{Content} field containing the \texttt{Entry} of the client. If
+		this is recieved without error, the client is sent \texttt{ok},
+		otherwise they are sent \texttt{no}.
+
+		After this, the server expects a \texttt{caps} message from the client,
+		which details the capabilites of the client and can be used for
+		negotiating things such as compression or encryption, or other protocol
+		extensions. It has no predefined struct, and is essentially
+		an arbitrary object --- it is up to protocol implementations to define it.
+
+		Now that we have both the client capabilities and the client \texttt{Entry}, it is
+		time for the client to prove that they are who they say they are.
+		Essentially, they need to prove that they are in possession of the
+		Ed25519 private key that corresponds to the public key in the \texttt{Entry}.
+
+		First, the server generates 20 random bytes. It is important that these
+		are generated in a cryptographically secure manner. These are
+		then sent to the client using a \texttt{cookie} message.
+
+		The client should then sign this cookie using their private key, and
+		send the signature to the server using a \texttt{sig} message.
+
+		Now that it has the signature, the server verifies it against the public
+		key and cookie that it already has. If there is a match, then the client
+		is sent \texttt{ok}, otherwise it is sent \texttt{no}.
+
+		We are not quite done. Now it is time for roles to reverse: the
+		client has proven who they are, but it is now the server's turn.
+
+		If the server is happy to continue, it will send the client \texttt{ok},
+		otherwise the client is sent \texttt{no}. If the client is sent
+		\texttt{ok}, the server will also begin sending a handshake, going
+		through the above process in the role of the client.
+	\end{multicols}
+
+	\subsection{Message specification}
+	\subsubsection{req.search}
+	\begin{multicols}{2}
+		This message asks a peer to perform a full text search upon all of the
+		posts in its database. Note that a peer cannot (presently) handle remote
+		search requests for any peers that it is a seed for, as search results
+		are not cryptographically verified.
+
+		The \texttt{Content} field of this message contains a struct with fields of Query
+		and \texttt{Page}. The \texttt{Query} is a string, essentially the text we want to search
+		for. The \texttt{Page} is what page of results the client wishes to recieve.
+
+		Regardless of whether or not the peer has posts matching this query, it
+		will still respond with \texttt{posts}. This is an array of post
+		structs, and may well be empty.
+	\end{multicols}
+	\newpage
+	\subsubsection{req.recent and req.popular}
+	\begin{multicols}{2}
+		These two messages are very similar, and very simple. The \texttt{Content} field
+		contains nothing more than a page number.
+
+		Both respond with \texttt{posts}, and an array of posts. The only way
+		they differ is that \texttt{req.recent} responds with the most recently
+		uploaded posts and \texttt{req.popular} responds with the most popular
+		posts.
+
+		What makes a post popular is entirely up to the client and the implementation,
+		though using seeders and leechers is a good idea.
+	\end{multicols}
+
+	\subsubsection{req.hashlist}
+	\begin{multicols}{2}
+		This message sends a request for a hash list to a peer, for any peer.
+		For the sakes of clarity, the peer we want the hash list for is called
+		Bob, and the peer we are connected to is called Alice. 
+		
+		The \texttt{Content} field of a \texttt{req.hashlist} contains the binary of
+		Bob's address. Alice will respond with the hash list if they have it,
+		otherwise will respond with a \texttt{no} and an error.
+
+		Note that asking Alice for Bob's hash list should only really be done
+		if we have any indication that Alice is a seed for Bob, otherwise there
+		is no real reason for them to have the hash list.
+	\end{multicols}
+
+	\subsubsection{req.piece}
+	\begin{multicols}{2}
+		\texttt{req.piece} is used to request a piece to be downloaded from a
+		peer. Like above, the peer who we want a piece for is called Bob, and
+		the peer we are connected to is called Alice. It can also be used to
+		request a range of pieces.
+
+		When Alice recieves a \texttt{req.piece}, it has the id of the start
+		piece, how many pieces we should respond with, and the address of Bob.
+
+		These fields are called \texttt{Id}, \texttt{Length}, and
+		\texttt{Address} respectively.
+
+		Alice will check if they have the database for Bob (may in fact
+		be Alice). If not, Alice will respond with \texttt{no}. It is possible
+		for us to query Alice with her own address, which should also work.
+
+		Alice will then load the posts for pieces starting with Id, until post
+		with id \texttt{Id + Length}.
+
+		Once Alice has loaded the posts from their database, they will be sent
+		to the peer. However, they are \textbf{not} MessagePack encoded, as this
+		is wasteful. We already know the field names, and we already know the
+		order they will be in. This is just a matter of copying the data. As
+		such, posts are encoded in much the same way as they were when being
+		hashed - however, seeders and leechers are in much the same manner, and
+		inserted between \texttt{FileCount} and \texttt{UploadDate}.
+
+		Because at this point we are no longer sending messages, we need some
+		other way of indicating that there are no longer any posts to send. To
+		do this, send an encoded post with an id of -1. Because this is impossible
+		otherwise, as ids must be positive, it can be used to indicate the end of a
+		piece.
+	\end{multicols}
+
+	\newpage
+	\subsubsection{req.addseed}
+	\begin{multicols}{2}
+		This message can be used to request that a peer add the sender as a seed for a
+		given peer.
+
+		The \texttt{Content} field contains the raw DFI address of the peer that we want
+		to become a seed for. The remote peer will then attempt to merge our
+		address into the correct seed list, and will respond with \texttt{ok} if
+		successful. Otherwise, the response will be \texttt{no} and an error
+		will be the response.
+	\end{multicols}
+
+	\subsubsection{dht.query}
+	\begin{multicols}{2}
+		This is a pretty straightforward request. The client sends a message
+		containing the raw DFI address it is looking for in the \texttt{Content} field,
+		and the server attempts to look it up. If it has the \texttt{Entry}, it responds
+		with \texttt{dht.entry} and an encoded \texttt{Entry}. Otherwise, the reponse is
+		\texttt{no} and an error.
+
+		The server will also reinsert the result of the query into its routing
+		table. This ensures that popular entries are more likely to show up in
+		a \texttt{dht.findclosest}.
+	\end{multicols}
+
+	\subsubsection{dht.findclosest}
+	\begin{multicols}{2}
+		This request is mostly used for address resolution and exploration of
+		the network. 
+
+		Much like \texttt{dht.query} this message contains the raw DFI address
+		in its \texttt{Content}.
+
+		The remote peer will then perform a lookup in the routing table, as
+		described in the Address resolution section. 
+
+		The results will be returned in a \texttt{dht.entries}. Otherwise, a
+		\texttt{no} will be returned with an error.
+	\end{multicols}
+
+	\subsubsection{dht.announce}
+	\begin{multicols}{2}
+		This message takes an encoded \texttt{Entry} in the \texttt{Content} field. This is then
+		inserted into the remote peer's NetDB, and the remote peer responds with 
+		either an \texttt{ok} on success or a \texttt{no} and error on failure.
+	\end{multicols}
+
+	\subsection{NetDB}
+	\begin{multicols}{2}
+		DFI has the concept of a ``NetDB", which is essentially a distributed hash
+		table, or DHT. It is more or less an implementation of Kademlia, though
+		with some slightly different goals. Unlike Kademlia, each DFI node has
+		the goal of \textbf{total} network knowledge --- that is, all nodes know about
+		all nodes. 
+		
+		Also unlike Kademlia, DFI has a separate backing database as
+		well as a routing table. This does add additional complexity, but allows
+		for greater functionality.
+	\end{multicols}
+
+	\newpage
+		\subsubsection{Separation of table and database}
+		\begin{multicols}{2}
+		In order to allow for potential total network awareness, while still
+		allowing for the routing table to remain entirely in memory, the 
+		database and routing table need to be separated. The NetDB is a combination of the two.
+
+		All known DFI nodes are stored in the main store, while a selection is
+		stored in the routing table. It is recommended to take a
+		random selection of the nodes in the store and add them to the table
+		periodically, in order to keep data up-to-date.
+
+		To better understand some of the concepts that follow, I recommend you
+		read the Kademlia paper \cite{kademlia}. Next I will be going over how NetDB works, as
+		well as the Kademlia elements of it.
+
+		Like Kademlia, DFI uses the XOR distance metric. XOR is actually a
+		proper distance metric, and satisfies the triangle inequality --- it works great
+		with binary addresses.
+
+		The routing table is represented as a selection of buckets, one bucket
+		for each bit in the raw DFI address. The bucket size is known as
+		\textit{k}.
+	\end{multicols}
+
+		\subsubsection{Address resolution}
+		\label{sec:addrres}
+		\begin{multicols}{2}
+		As has been explained prior, every DFI node has an assigned address,
+		which is 20 bytes. If a node wishes to have the \texttt{Entry} for a peer, and
+		it doesn't have that \texttt{Entry} in its own database, it will look to its
+		routing table. 
+
+
+		First, it takes the address as a byte array, and looks at each bit of
+		each byte, starting with the leftmost. By doing this, we can count the
+		number of ``leading zeroes". This corresponds to a "bucket" in the
+		routing table, containing all other DFI addresses with that number of
+		leading zeroes. By the XOR metric, they are close to each other.
+
+		In order to find some nodes that may know about the address we are
+		looking for, we look to the bucket that the address resides in. If the
+		bucket is full, then great! Take the whole thing. If not, then start
+		looking to the buckets either side, and repeat this until we have
+		\textit{k} closest nodes, or run out of buckets.
+
+		The resulting list of addresses can then be sorted by closeness to our
+		target address.
+
+		We connect to the closest peer, and \texttt{dht.query} it for the
+		target node. Hopefully it will respond with the \texttt{Entry} we are looking
+		for. If not, then send it a \texttt{dht.findclosest}, which will cause
+		it to perform the above lookup in its routing table and respond with the
+		results. We can then recursively work through each \texttt{Entry} in this list.
+
+		The above process can be repeated with every other node in our initial
+		list.
+
+		The main problem with this process is that if the node doesn't exist, or
+		is barely known in the network, the number of queries and connections
+		performed while trying to resolve it can be immense. Because of this it
+		is probably best for implementations to limit the number of lookups.
+	\end{multicols}
+
+	\newpage
+	\subsection{Network exploration}
+	\begin{multicols}{2}
+	This is something of a protocol extension. Clients do not need to implement
+	this in order to function as a DFI node, however it is recommended to aid in
+	network awareness.
+
+	Exploration should discover as many new nodes as possible via
+	\texttt{dht.findclosest} requests. 
+
+	In order to start, we need a node to work with. Ideally this would be chosen at random.
+	The first step is to generate 20 random bytes, these can be treated as a DFI
+	address. Send the node a \texttt{dht.findclosest} for the random bytes, and
+	then follow up with another \texttt{dht.findclosest} for the client's own
+	address. This means that a node both knows about those close to it which
+	aids in address resolution, and as much of the network as possible.
+
+	Now that there is a set of results, the node can sort it. It's best to
+	prefer nodes that have not been seen before, then nodes
+	that have not been explored or seen in a while. 
+
+	If an explore ever runs out of nodes to work with, then it can be seeded
+	from the node's own routing table.
+
+	This explore job can be ran as often as every 2 minutes, though this should
+	be configurable.
+	\end{multicols}
+
+	\subsection{Periodic announcing}
+	\begin{multicols}{2}
+		This is an opposite to an explore. While an explore seeks
+		to fill the NetDB as much as possible, periodic announcing seeks to make
+		sure that the rest of the network knows about our node. It is
+		best if nodes announce to a \texttt{dht.findclosest} run on their own
+		table for both their own address and a random one.
+	\end{multicols}
+
+	\subsection{Seed discovery}
+	\begin{multicols}{2}
+		Since nodes can have seeds, it is in their interest to try and
+		gather as many of its seeds as possible into its seed list. After all, a
+		node may become a seed for another without at all contacting the
+		original author. 
+
+		This should be done by contacting seeds in the seed list for an \texttt{Entry}
+		periodically, and querying for the \texttt{Entry}. If the result has a different
+		seed list, the two should be merged and any duplicates removed. This
+		way, the seed list should be as full as possible.
+
+		Seeds should also go through this process, so that all seeds have access
+		to the fullest list possible, and therefore know about each other.
+	\end{multicols}
+
+	\subsection{Seed verification}
+	\begin{multicols}{2}
+		It is possible to verify that an \texttt{Entry} is in fact a seed for another,
+		instead of just blindly trusting the node we have recieved its \texttt{Entry}
+		from.
+
+		The seed's \texttt{Entry} should be looked up, and its seeding list should be
+		searched for the node it is allegedly seeding. If it is there, then we
+		know that this is definitely a seed, as the seeding list is
+		authenticated.
+	\end{multicols}

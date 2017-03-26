@@ -1,0 +1,17 @@
+\section{Conclusion}
+\begin{multicols}{2}
+To conclude, I have presented a protocol for peer to peer search and
+indexing of BitTorrent infohashes. As of now, it is functional and I have a
+working implementation (https://github.com/dfi/dfi). 
+DFI allows for nodes to leave and join at any time, and is resilient to
+censorship. Provided that a node has at least one connection to one node in
+the main network, it can still retain full network awareness. This full
+awareness is important as it allows address resolution to occur quickly, and
+minimises loss of information.
+I have not attempted to implement my own file transfer protocol: simply improve
+upon the indexing and discovery of files. The DFI protocol allows for this to be
+done in a decentralised manner, which allows for maximal sharing.
+\end{multicols}
+
+\quot{Sharing is good, and with digital technology, sharing is easy.}{Richard
+	Stallman}

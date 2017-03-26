@@ -1,0 +1,52 @@
+\usepackage{multicol}
+\usepackage{hyperref}
+\usepackage{fancyhdr}
+\usepackage{titling}
+\usepackage{lastpage}
+\usepackage{listings}
+\usepackage{accents}
+\usepackage{hhline}
+\usepackage[utf8]{inputenc}
+\usepackage[english]{babel}
+\usepackage[autostyle]{csquotes}
+\usepackage[
+    backend=biber,
+	bibstyle=authoryear,
+	sorting=none
+]{biblatex}
+\addbibresource{bibliography.bib}
+
+\DeclareFieldFormat{bibentrysetcount}{\mkbibparens{\mknumalph{#1}}}
+\DeclareFieldFormat{labelnumberwidth}{\mkbibbrackets{#1}}
+\DeclareNameAlias{sortname}{first-last}
+
+
+\defbibenvironment{bibliography}
+  {\list
+     {\printtext[labelnumberwidth]{%
+    \printfield{prefixnumber}%
+    \printfield{labelnumber}}}
+     {\setlength{\labelwidth}{\labelnumberwidth}%
+      \setlength{\leftmargin}{\labelwidth}%
+      \setlength{\labelsep}{\biblabelsep}%
+      \addtolength{\leftmargin}{\labelsep}%
+      \setlength{\itemsep}{\bibitemsep}%
+      \setlength{\parsep}{\bibparsep}}%
+      \renewcommand*{\makelabel}[1]{\hss##1}}
+  {\endlist}
+  {\item}
+
+
+% thanks to andm for this macro :)
+\newcommand{\quot}[2]{\begin{flushright} {\it { ``#1''} \\ {\small #2}} \end{flushright}}
+
+\fancypagestyle{page}
+{
+	\fancyhf{}
+	\rhead{\uppercase{\leftmark}}
+	\lhead{DFI}
+	\cfoot{\thepage\ of \pageref{LastPage}}
+	\renewcommand{\footrulewidth}{0.4pt}
+}
+
+\pagestyle{page}

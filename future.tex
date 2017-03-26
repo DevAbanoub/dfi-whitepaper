@@ -1,0 +1,27 @@
+\section{Future}
+\begin{multicols}{2}
+This is not the final specification for DFI, and in the future I would like to
+add a few other features. 
+
+For one, I would like to allow for seeds to answer remote search queries on
+behalf of the original author. This would require some sort of seed ``promotion"
+by the author, and could perhaps be done by some sort of friend system. A new
+list may have to be added to the \texttt{Entry}, detailing those the \texttt{Entry} trusts to
+answer queries on its behalf.
+
+I would also like to allow for more file transfer protocols than just
+BitTorrent. This could be done by specifying some sort of Content-Type in posts,
+or a field in meta.
+
+Another possible adjustment is culling of the NetDB. If DFI grows to be large,
+then there could be possible storage issues, where storing all known nodes
+becomes too many. A possible solution is removing any peer that has no content
+and has been inactive for a long time.
+
+Finally, I would like to allow for user-submitted data --- for instance, something
+like comments. This could be done in a similar manner to seed discovery. The
+only issues I can see here are those of spam, and any sort of user verification
+- UseNet has a similar issue with spam \cite{spam}. Sadly the best option 
+here is some sort of hosted and centralised database for comments, as these
+are not essential to the network's functionality.
+\end{multicols}

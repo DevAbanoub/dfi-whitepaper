@@ -1,0 +1,120 @@
+\section{Posts}
+DFI is all about sharing posts. Posts represent an individual file or a
+collection of files, as well as any associated metadata. They can be stored in
+any way the client wishes, though I've found SQLite to be useful. It has a
+full text search feature which is particularly useful, see FTS4. In memory they
+can be easily represented as a struct.
+
+Since a post contains a BitTorrent infohash, the files it is tied to can be
+downloaded using any BitTorrent client. Post searches can also be ordered by
+seeders and leechers, as these are indicative of popularity.\\
+
+\begin{minipage}{\linewidth}
+\begin{center}
+	\begin{tabular}{ c|p{8cm} }
+	\textbf{Field} & \textbf{Purpose} \\  
+	\hline
+	Id             & starting at one and incrementing with
+	                 every post: ids are local to a collection \\
+	\hline
+	InfoHash       & a BitTorrent infohash, can be used to download the file \\
+	\hline
+	Title          & the name of the file, used for searching \\
+	\hline
+	Size           & the size of the file, in bytes \\
+	\hline
+	FileCount      & how many files this post contains \\
+	\hline
+	Seeders        & how many seeders the torrent file has \\
+	\hline
+	Leechers       & how many leechers the torrent file has \\
+	\hline
+	UploadDate     & the Unix timestamp (seconds) that this post was created at
+	\\
+	\hline
+	Tags           & a comma-separated list of tags relating to this post \\
+	\hline
+	Meta           & a JSON object of metadata: useful for extensions\\
+	\hline
+\end{tabular}
+\end{center}
+\end{minipage}
+
+\subsection{Pieces}
+\begin{multicols}{2}
+DFI stores posts in groups called Pieces. Each \texttt{Piece} contains 1000 posts, and
+make it possible to verify posts. When downloading posts from a peer, it is done
+a piece at a time, as pieces do not need to be full --- while they can contain
+1000 posts, they could just contain one.
+
+This carries on. Piece 0 may have 1000 posts, while piece 1 may only have 10.
+
+A piece contains a checksum, and for this DFI uses SHA3-256. Every time a post
+is added to a piece, the checksum is updated. In this way, we can
+cryptographically verify that we have gotten all the posts we expect.
+\end{multicols}
+
+\subsubsection{Post hashing}
+\begin{multicols}{2}
+Because encoding methods such as JSON do not guarantee any sort of field
+ordering, which is required when generating a checksum, Posts must be encoded by
+DFI. When writing a post to a hashsum, the fields are written to a string in the
+order above. However, for reasons explained in \ref{secPostImmutability}, seeders and leechers are not
+included. 
+
+For instance:
+\end{multicols}
+\begin{lstlisting}
+Id|InfoHash|Title|Size|FileCount|UploadDate|Tags|Meta
+\end{lstlisting}
+
+\pagebreak
+\subsubsection{Post immutability}
+\label{secPostImmutability}
+\begin{multicols}{2}
+Due to the fact that we may well be downloading a post database from a peer
+that did not author it, post data \textbf{must} be immutable and signed. Otherwise seeds
+would be free to edit titles and descriptions wherever they please, which could
+be confusing.
+
+However, the only post field that should be able to change are the seeder and
+leecher count, as generally they tend to decrease over time. Because of this,
+they are not included in the hashing of a post for a piece checksum, meaning
+that any peer can change them. 
+
+When downloading a post from a seed, it would be prudent to check the
+seed/leech count with a BitTorrent tracker yourself, to avoid fakes.
+\end{multicols}
+
+\subsection{Collections}
+\begin{multicols*}{2}
+Collections are, as the name suggests, collections of pieces. Essentially, each
+node in the network authors a single collection of pieces, and this collection
+may grow in time. Or, they may be empty.
+
+Let's say Alice is the author of a collection, Eve is a seed for the
+collection, and Bob is attempting to download it from Eve. Eve could modify
+posts, and Bob would be none the wiser. 
+
+This is where collections come into play. Alice takes her pieces, and checksums
+each individual piece. Each checksum is then summed again, still using SHA3-256
+- this forms a hashlist, with the final checksum being the root hash. Alice can
+then insert the root hash into her \texttt{Entry}, and sign the \texttt{Entry} with her
+private key.
+
+Collections are made up of a root hash and a list of hashes.  Since
+addresses can be used to verify the public key of an \texttt{Entry}, which can in turn be
+used to verify the \texttt{Entry} itself, Bob can fetch Alice's root hash from any node.
+These can then be used to fetch the hash list from anyone who is seeding Alice,
+in this case Eve. The hash list can be checksummed, and the resulting checksum
+compared to the root hash in Alice's \texttt{Entry}. 
+
+If the two checksums match, then Bob knows that he has a valid hash list.
+
+Bob can then continue to download pieces from any of Alice's seeds, safe in the
+knowledge that they can all be verified via the hash list to be the same pieces
+that Alice authored. 
+
+With this in place, if Eve attempts to modify any piece or post, then checksums
+will no longer match, and Bob will know.
+\end{multicols*}
